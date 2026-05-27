@@ -2,6 +2,10 @@
 
 Demo de dashboard financeiro e operacional para PMEs. O objetivo é mostrar como dados de vendas, despesas, canais e categorias podem ser transformados numa visão de gestão clara.
 
+## Demo online
+
+[https://insightboard-ten.vercel.app](https://insightboard-ten.vercel.app)
+
 ## Funcionalidades
 
 - Indicadores de receita, despesas, resultado líquido e ticket médio
