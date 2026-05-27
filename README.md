@@ -10,10 +10,14 @@ Demo de dashboard financeiro e operacional para PMEs. O objetivo é mostrar como
 
 - Indicadores de receita, despesas, resultado líquido e ticket médio
 - Filtros por trimestre ou ano
+- Filtro por tipo de movimento: receita, despesa ou todos
 - Pesquisa por cliente, categoria, descrição ou canal
+- Comparação com período anterior nos indicadores principais
 - Gráfico mensal de receita e despesas
+- Alertas inteligentes com sinais de margem, concentração e despesas
 - Ranking de categorias
 - Distribuição de receita por canal
+- Top clientes por receita
 - Tabela de transações
 - Exportação CSV dos dados filtrados
 

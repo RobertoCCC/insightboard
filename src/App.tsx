@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import {
+  AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
   BarChart3,
   CalendarDays,
+  CheckCircle2,
   Download,
   FileText,
   Gauge,
@@ -17,7 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { transactions } from "./data";
-import type { Period, Transaction } from "./types";
+import type { Period, Transaction, TransactionType } from "./types";
 
 const currency = new Intl.NumberFormat("pt-PT", {
   style: "currency",
@@ -31,6 +33,15 @@ const periods: Array<{ id: Period; label: string; months: number[] }> = [
   { id: "q3", label: "T3", months: [6, 7, 8] },
   { id: "q4", label: "T4", months: [9, 10, 11] },
   { id: "year", label: "Ano", months: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+];
+
+const typeFilters: Array<{
+  id: TransactionType | "all";
+  label: string;
+}> = [
+  { id: "all", label: "Todos" },
+  { id: "income", label: "Receita" },
+  { id: "expense", label: "Despesa" },
 ];
 
 const monthLabels = [
@@ -54,6 +65,39 @@ function formatCurrency(value: number) {
 
 function getMonth(transaction: Transaction) {
   return new Date(`${transaction.date}T00:00:00`).getMonth();
+}
+
+function getPreviousMonths(activePeriod: Period) {
+  if (activePeriod === "q1") return [];
+  if (activePeriod === "q2") return [0, 1, 2];
+  if (activePeriod === "q3") return [3, 4, 5];
+  if (activePeriod === "q4") return [6, 7, 8];
+  return [0, 1, 2, 3, 4, 5];
+}
+
+function summarize(rows: Transaction[]) {
+  const revenue = rows
+    .filter((item) => item.type === "income")
+    .reduce((sum, item) => sum + item.amount, 0);
+  const expenses = rows
+    .filter((item) => item.type === "expense")
+    .reduce((sum, item) => sum + item.amount, 0);
+  const profit = revenue - expenses;
+  const margin = revenue > 0 ? Math.round((profit / revenue) * 100) : 0;
+  const incomeCount = rows.filter((item) => item.type === "income").length;
+  const averageTicket = incomeCount > 0 ? revenue / incomeCount : 0;
+
+  return { revenue, expenses, profit, margin, averageTicket };
+}
+
+function percentChange(current: number, previous: number) {
+  if (previous === 0) return current === 0 ? 0 : 100;
+  return Math.round(((current - previous) / previous) * 100);
+}
+
+function formatChange(value: number) {
+  if (value === 0) return "0% vs anterior";
+  return `${value > 0 ? "+" : ""}${value}% vs anterior`;
 }
 
 function csvCell(value: string | number) {
@@ -96,6 +140,7 @@ function exportTransactionsCsv(rows: Transaction[]) {
 
 export function App() {
   const [activePeriod, setActivePeriod] = useState<Period>("year");
+  const [typeFilter, setTypeFilter] = useState<TransactionType | "all">("all");
   const [query, setQuery] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -105,6 +150,7 @@ export function App() {
     const normalized = query.trim().toLowerCase();
     return transactions.filter((transaction) => {
       const matchesPeriod = period.months.includes(getMonth(transaction));
+      const matchesType = typeFilter === "all" || transaction.type === typeFilter;
       const matchesQuery =
         normalized.length === 0 ||
         [
@@ -117,24 +163,31 @@ export function App() {
           .toLowerCase()
           .includes(normalized);
 
-      return matchesPeriod && matchesQuery;
+      return matchesPeriod && matchesType && matchesQuery;
     });
-  }, [period, query]);
+  }, [period, query, typeFilter]);
+
+  const comparison = useMemo(() => {
+    const currentRows = transactions.filter((transaction) =>
+      period.months.includes(getMonth(transaction)),
+    );
+    const previousMonths = getPreviousMonths(activePeriod);
+    const previousRows = transactions.filter((transaction) =>
+      previousMonths.includes(getMonth(transaction)),
+    );
+    const current = summarize(currentRows);
+    const previous = summarize(previousRows);
+
+    return {
+      revenue: percentChange(current.revenue, previous.revenue),
+      expenses: percentChange(current.expenses, previous.expenses),
+      profit: percentChange(current.profit, previous.profit),
+      margin: current.margin - previous.margin,
+    };
+  }, [activePeriod, period.months]);
 
   const insights = useMemo(() => {
-    const revenue = filteredTransactions
-      .filter((item) => item.type === "income")
-      .reduce((sum, item) => sum + item.amount, 0);
-    const expenses = filteredTransactions
-      .filter((item) => item.type === "expense")
-      .reduce((sum, item) => sum + item.amount, 0);
-    const profit = revenue - expenses;
-    const margin = revenue > 0 ? Math.round((profit / revenue) * 100) : 0;
-    const averageTicket =
-      filteredTransactions.filter((item) => item.type === "income").length > 0
-        ? revenue /
-          filteredTransactions.filter((item) => item.type === "income").length
-        : 0;
+    const summary = summarize(filteredTransactions);
 
     const monthly = monthLabels.map((month, index) => {
       const monthRows = filteredTransactions.filter(
@@ -172,19 +225,69 @@ export function App() {
       {},
     );
 
+    const byClient = filteredTransactions.reduce<Record<string, number>>(
+      (acc, item) => {
+        if (item.type === "income") {
+          acc[item.client] = (acc[item.client] ?? 0) + item.amount;
+        }
+        return acc;
+      },
+      {},
+    );
+
     return {
-      revenue,
-      expenses,
-      profit,
-      margin,
-      averageTicket,
+      ...summary,
       monthly,
       topCategories: Object.entries(byCategory)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5),
       channels: Object.entries(byChannel).sort((a, b) => b[1] - a[1]),
+      topClients: Object.entries(byClient)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5),
     };
   }, [filteredTransactions]);
+
+  const alerts = useMemo(() => {
+    const largestExpense = filteredTransactions
+      .filter((item) => item.type === "expense")
+      .sort((a, b) => b.amount - a.amount)[0];
+    const topClient = insights.topClients[0];
+    const topClientShare =
+      topClient && insights.revenue > 0
+        ? Math.round((topClient[1] / insights.revenue) * 100)
+        : 0;
+
+    return [
+      {
+        tone: insights.margin >= 70 ? "positive" : "warning",
+        title:
+          insights.margin >= 70
+            ? "Margem saudável"
+            : "Margem a acompanhar",
+        body:
+          insights.margin >= 70
+            ? `A margem líquida está em ${insights.margin}%, acima do alvo interno.`
+            : `A margem está em ${insights.margin}%; rever custos e pricing.`
+      },
+      {
+        tone: topClientShare > 30 ? "warning" : "neutral",
+        title: "Concentração de cliente",
+        body: topClient
+          ? `${topClient[0]} representa ${topClientShare}% da receita filtrada.`
+          : "Sem receita suficiente para calcular concentração.",
+      },
+      {
+        tone: largestExpense && largestExpense.amount > 1200 ? "warning" : "positive",
+        title: "Controlo de despesas",
+        body: largestExpense
+          ? `Maior despesa: ${largestExpense.category}, ${formatCurrency(
+              largestExpense.amount,
+            )}.`
+          : "Não há despesas no filtro atual.",
+      },
+    ];
+  }, [filteredTransactions, insights.margin, insights.revenue, insights.topClients]);
 
   const maxMonthlyValue = Math.max(
     1,
@@ -296,6 +399,18 @@ export function App() {
               </button>
             ))}
           </div>
+          <div className="type-filters" aria-label="Filtro por tipo">
+            {typeFilters.map((item) => (
+              <button
+                className={typeFilter === item.id ? "selected" : ""}
+                type="button"
+                key={item.id}
+                onClick={() => setTypeFilter(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
           <div className="date-chip">
             <CalendarDays size={16} />
             Dados fictícios de 2026
@@ -306,34 +421,60 @@ export function App() {
           <MetricCard
             label="Receita"
             value={formatCurrency(insights.revenue)}
-            hint={`${filteredTransactions.length} movimentos filtrados`}
+            hint={formatChange(comparison.revenue)}
             icon={<ArrowUpRight size={20} />}
             tone="income"
           />
           <MetricCard
             label="Despesas"
             value={formatCurrency(insights.expenses)}
-            hint="Custos operacionais e externos"
+            hint={formatChange(comparison.expenses)}
             icon={<ArrowDownRight size={20} />}
             tone="expense"
           />
           <MetricCard
             label="Resultado"
             value={formatCurrency(insights.profit)}
-            hint={`Margem líquida de ${insights.margin}%`}
+            hint={formatChange(comparison.profit)}
             icon={<TrendingUp size={20} />}
             tone="profit"
           />
           <MetricCard
             label="Ticket médio"
             value={formatCurrency(insights.averageTicket)}
-            hint="Média por venda registada"
+            hint={`Margem ${comparison.margin >= 0 ? "+" : ""}${comparison.margin} pts`}
             icon={<Wallet size={20} />}
             tone="neutral"
           />
         </section>
 
         <section className="dashboard-grid">
+          <article className="panel alerts-panel">
+            <div className="panel-heading">
+              <div>
+                <h2>Alertas inteligentes</h2>
+                <p>Sinais automáticos para apoiar decisões de gestão.</p>
+              </div>
+            </div>
+            <div className="alert-list">
+              {alerts.map((alert) => (
+                <div className={`alert-item ${alert.tone}`} key={alert.title}>
+                  <span>
+                    {alert.tone === "positive" ? (
+                      <CheckCircle2 size={17} />
+                    ) : (
+                      <AlertTriangle size={17} />
+                    )}
+                  </span>
+                  <div>
+                    <strong>{alert.title}</strong>
+                    <p>{alert.body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </article>
+
           <article className="panel wide" id="evolucao">
             <div className="panel-heading">
               <div>
@@ -419,6 +560,29 @@ export function App() {
             </div>
           </article>
 
+          <article className="panel">
+            <div className="panel-heading">
+              <div>
+                <h2>Top clientes</h2>
+                <p>Clientes com maior receita no período.</p>
+              </div>
+            </div>
+            <div className="client-list">
+              {insights.topClients.map(([client, value], index) => (
+                <div className="client-item" key={client}>
+                  <span>{index + 1}</span>
+                  <div>
+                    <strong>{client}</strong>
+                    <small>{formatCurrency(value)}</small>
+                  </div>
+                </div>
+              ))}
+              {insights.topClients.length === 0 ? (
+                <p className="empty-note">Sem receitas no filtro atual.</p>
+              ) : null}
+            </div>
+          </article>
+
           <article className="panel transactions-panel" id="transacoes">
             <div className="panel-heading">
               <div>
@@ -462,6 +626,12 @@ export function App() {
                   ))}
                 </tbody>
               </table>
+              {filteredTransactions.length === 0 ? (
+                <div className="empty-state">
+                  <strong>Sem transações encontradas</strong>
+                  <p>Altera o período, tipo ou termo de pesquisa.</p>
+                </div>
+              ) : null}
             </div>
           </article>
         </section>
