@@ -44,6 +44,14 @@ const typeFilters: Array<{
   { id: "expense", label: "Despesa" },
 ];
 
+const revenueGoalByPeriod: Record<Period, number> = {
+  q1: 14000,
+  q2: 16000,
+  q3: 17500,
+  q4: 22000,
+  year: 70000,
+};
+
 const monthLabels = [
   "Jan",
   "Fev",
@@ -143,6 +151,7 @@ export function App() {
   const [typeFilter, setTypeFilter] = useState<TransactionType | "all">("all");
   const [query, setQuery] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const period = periods.find((item) => item.id === activePeriod) ?? periods[4];
 
@@ -298,6 +307,15 @@ export function App() {
     ...insights.topCategories.map((item) => item[1]),
   );
   const maxChannelValue = Math.max(1, ...insights.channels.map((item) => item[1]));
+  const revenueGoal = revenueGoalByPeriod[activePeriod];
+  const revenueGoalProgress = Math.min(
+    100,
+    Math.round((insights.revenue / revenueGoal) * 100),
+  );
+  const revenueGap = Math.max(0, revenueGoal - insights.revenue);
+  const topClient = insights.topClients[0];
+  const bestChannel = insights.channels[0];
+  const topCategory = insights.topCategories[0];
 
   return (
     <div className="app-shell">
@@ -383,6 +401,14 @@ export function App() {
               <Download size={18} />
               Exportar CSV
             </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setReportOpen(true)}
+            >
+              <FileText size={18} />
+              Gerar relatório
+            </button>
           </div>
         </header>
 
@@ -449,6 +475,34 @@ export function App() {
         </section>
 
         <section className="dashboard-grid">
+          <article className="panel goal-panel">
+            <div className="panel-heading">
+              <div>
+                <h2>Meta de receita</h2>
+                <p>Acompanhamento do objetivo comercial para o período.</p>
+              </div>
+              <span className="goal-badge">{revenueGoalProgress}%</span>
+            </div>
+            <div className="goal-body">
+              <div>
+                <span>Realizado</span>
+                <strong>{formatCurrency(insights.revenue)}</strong>
+              </div>
+              <div>
+                <span>Meta</span>
+                <strong>{formatCurrency(revenueGoal)}</strong>
+              </div>
+            </div>
+            <div className="goal-track">
+              <span style={{ width: `${revenueGoalProgress}%` }} />
+            </div>
+            <p className="goal-note">
+              {revenueGap > 0
+                ? `Faltam ${formatCurrency(revenueGap)} para atingir a meta.`
+                : "Meta atingida no período selecionado."}
+            </p>
+          </article>
+
           <article className="panel alerts-panel">
             <div className="panel-heading">
               <div>
@@ -636,6 +690,92 @@ export function App() {
           </article>
         </section>
       </main>
+
+      {reportOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="report-modal" aria-label="Relatório executivo">
+            <div className="report-actions no-print">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => window.print()}
+              >
+                <Download size={18} />
+                Exportar PDF
+              </button>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => setReportOpen(false)}
+                aria-label="Fechar relatório"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="print-report">
+              <div className="report-head">
+                <div>
+                  <p className="eyebrow">Relatório executivo</p>
+                  <h2>InsightBoard</h2>
+                  <span>
+                    Período: {period.label} · Tipo:{" "}
+                    {typeFilters.find((item) => item.id === typeFilter)?.label}
+                  </span>
+                </div>
+                <strong>{new Date().toLocaleDateString("pt-PT")}</strong>
+              </div>
+
+              <div className="report-grid">
+                <ReportMetric label="Receita" value={formatCurrency(insights.revenue)} />
+                <ReportMetric label="Despesas" value={formatCurrency(insights.expenses)} />
+                <ReportMetric label="Resultado" value={formatCurrency(insights.profit)} />
+                <ReportMetric label="Margem" value={`${insights.margin}%`} />
+              </div>
+
+              <div className="report-section">
+                <h3>Resumo de gestão</h3>
+                <p>
+                  O período selecionado apresenta {formatCurrency(insights.revenue)} em
+                  receita, {formatCurrency(insights.expenses)} em despesas e resultado
+                  líquido de {formatCurrency(insights.profit)}. A meta de receita está
+                  em {revenueGoalProgress}%.
+                </p>
+              </div>
+
+              <div className="report-grid compact">
+                <ReportMetric
+                  label="Top cliente"
+                  value={topClient ? topClient[0] : "Sem dados"}
+                />
+                <ReportMetric
+                  label="Melhor canal"
+                  value={bestChannel ? bestChannel[0] : "Sem dados"}
+                />
+                <ReportMetric
+                  label="Categoria principal"
+                  value={topCategory ? topCategory[0] : "Sem dados"}
+                />
+                <ReportMetric
+                  label="Transações"
+                  value={String(filteredTransactions.length)}
+                />
+              </div>
+
+              <div className="report-section">
+                <h3>Alertas</h3>
+                <ul>
+                  {alerts.map((alert) => (
+                    <li key={alert.title}>
+                      <strong>{alert.title}:</strong> {alert.body}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -660,5 +800,14 @@ function MetricCard({
       <strong>{value}</strong>
       <p>{hint}</p>
     </article>
+  );
+}
+
+function ReportMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="report-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
